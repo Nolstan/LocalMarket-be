@@ -1,0 +1,236 @@
+const Product = require('../models/Product');
+const { cloudinary } = require('../config/cloudinary');
+
+
+//   Helper to delete image from Cloudinary
+//   @param {string} imageUrl 
+ 
+const deleteCloudinaryImage = async (imageUrl) => {
+    try {
+        if (!imageUrl) return;
+        // Extract public_id from URL
+        const parts = imageUrl.split('/');
+        const fileName = parts[parts.length - 1].split('.')[0];
+        const folder = parts[parts.length - 2];
+        const publicId = `${folder}/${fileName}`;
+
+        await cloudinary.uploader.destroy(publicId);
+        console.log(`Deleted Cloudinary image: ${publicId}`);
+    } catch (err) {
+        console.error('Error deleting Cloudinary image:', err.message);
+    }
+};
+
+// desc    Add a new product
+// route   POST /api/products
+// access  Private 
+exports.addProduct = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'Please upload an image',
+            });
+        }
+
+        const productData = {
+            ...req.body,
+            imageUrl: req.file.path, // Cloudinary URL
+        };
+
+        const product = await Product.create(productData);
+        res.status(201).json({
+            success: true,
+            data: product,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+// desc    Get all products
+// route   GET /api/products
+// access  Public
+exports.getAllProducts = async (req, res) => {
+    try {
+        // Only show products from users who are NOT banned
+        const products = await Product.find()
+            .populate({
+                path: 'businessId',
+                match: { isBanned: false, isActive: true },
+                select: 'businessName ownerName'
+            });
+
+        // Filter out products where businessId is null (meaning the business was banned and excluded by match)
+        const visibleProducts = products.filter(p => p.businessId);
+
+        res.status(200).json({
+            success: true,
+            count: visibleProducts.length,
+            data: visibleProducts,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+// desc    Get single product
+// route   GET /api/products/:id
+// access  Public
+exports.getProduct = async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.id).populate({
+            path: 'businessId',
+            select: '_id businessName ownerName location contactInfo bio canPlaceOrders'
+        });
+
+        // Check if product exists and if the business is NOT banned (or handle if business is null)
+        if (!product || (product.businessId && product.businessId.isBanned)) {
+            return res.status(404).json({
+                success: false,
+                error: 'Product not found or seller is currently inactive',
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: product,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+// desc    Get all products for a business
+// route   GET /api/products/business/:businessId
+// access  Public
+exports.getBusinessProducts = async (req, res) => {
+    try {
+        const products = await Product.find({ businessId: req.params.businessId });
+        res.status(200).json({
+            success: true,
+            count: products.length,
+            data: products,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+// desc    Update a product
+// route   PUT /api/products/:id
+// access  Public
+exports.updateProduct = async (req, res) => {
+    try {
+        let product = await Product.findById(req.params.id);
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Product not found',
+            });
+        }
+
+        // Update with new image if provided
+        let updateData = req.body;
+        if (req.file) {
+            // Delete old image first
+            if (product.imageUrl) {
+                await deleteCloudinaryImage(product.imageUrl);
+            }
+            updateData.imageUrl = req.file.path;
+        }
+
+        product = await Product.findByIdAndUpdate(req.params.id, updateData, {
+            new: true,
+            runValidators: true,
+        });
+
+        res.status(200).json({
+            success: true,
+            data: product,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+// desc    Delete a product
+// route   DELETE /api/products/:id
+// access  Public
+exports.deleteProduct = async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.id);
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Product not found',
+            });
+        }
+
+        if (product.imageUrl) {
+            await deleteCloudinaryImage(product.imageUrl);
+        }
+
+        await product.deleteOne();
+
+        res.status(200).json({
+            success: true,
+            data: {},
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+// desc    Get all products grouped by business (Admin only)
+// route   GET /api/products/admin/all
+// access  Private/Admin
+exports.getAdminProducts = async (req, res) => {
+    try {
+        const products = await Product.find().populate('businessId', 'businessName ownerName isBanned');
+
+        // Group by business
+        const grouped = products.reduce((acc, product) => {
+            const businessId = product.businessId?._id || 'unknown';
+            const businessName = product.businessId?.businessName || 'Unknown Shop';
+
+            if (!acc[businessId]) {
+                acc[businessId] = {
+                    name: businessName,
+                    isBanned: product.businessId?.isBanned || false,
+                    products: []
+                };
+            }
+            acc[businessId].products.push(product);
+            return acc;
+        }, {});
+
+        res.status(200).json({
+            success: true,
+            data: Object.values(grouped),
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message,
+        });
+    }
+};
