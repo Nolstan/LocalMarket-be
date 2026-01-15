@@ -4,7 +4,7 @@ const { cloudinary } = require('../config/cloudinary');
 
 //   Helper to delete image from Cloudinary
 //   @param {string} imageUrl 
- 
+
 const deleteCloudinaryImage = async (imageUrl) => {
     try {
         if (!imageUrl) return;
@@ -56,15 +56,31 @@ exports.addProduct = async (req, res) => {
 // access  Public
 exports.getAllProducts = async (req, res) => {
     try {
-        // Only show products from users who are NOT banned
-        const products = await Product.find()
+        const { location, search } = req.query;
+        let query = {};
+
+        // If search term is provided, match against name or description
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Build business match object
+        let businessMatch = { isBanned: false, isActive: true };
+        if (location) {
+            businessMatch.location = { $regex: location, $options: 'i' };
+        }
+
+        const products = await Product.find(query)
             .populate({
                 path: 'businessId',
-                match: { isBanned: false, isActive: true },
-                select: 'businessName ownerName'
+                match: businessMatch,
+                select: 'businessName ownerName location'
             });
 
-        // Filter out products where businessId is null (meaning the business was banned and excluded by match)
+        // Filter out products where businessId is null (meaning business didn't match filters)
         const visibleProducts = products.filter(p => p.businessId);
 
         res.status(200).json({

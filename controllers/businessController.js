@@ -36,7 +36,7 @@ exports.getBusiness = async (req, res) => {
                 _id: business._id,
                 businessName: business.businessName,
                 isActive: business.isActive,
-                canPlaceOrders: business.canPlaceOrders, 
+                canPlaceOrders: business.canPlaceOrders,
                 ownerName: business.ownerName,
                 location: business.location,
                 contactInfo: business.contactInfo,
@@ -54,7 +54,14 @@ exports.getBusiness = async (req, res) => {
 
 exports.getBusinesses = async (req, res) => {
     try {
-        const businesses = await User.find({ isBanned: false }).select('-password');
+        const { location } = req.query;
+        let query = { isBanned: false };
+
+        if (location) {
+            query.location = { $regex: location, $options: 'i' };
+        }
+
+        const businesses = await User.find(query).select('-password');
         res.status(200).json({
             success: true,
             data: businesses,
