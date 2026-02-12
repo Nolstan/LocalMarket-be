@@ -74,6 +74,7 @@ exports.getAllProducts = async (req, res) => {
         }
 
         const products = await Product.find(query)
+            .sort({ createdAt: -1 })
             .populate({
                 path: 'businessId',
                 match: businessMatch,
@@ -131,7 +132,7 @@ exports.getProduct = async (req, res) => {
 // access  Public
 exports.getBusinessProducts = async (req, res) => {
     try {
-        const products = await Product.find({ businessId: req.params.businessId });
+        const products = await Product.find({ businessId: req.params.businessId }).sort({ createdAt: -1 });
         res.status(200).json({
             success: true,
             count: products.length,
@@ -221,7 +222,7 @@ exports.deleteProduct = async (req, res) => {
 // access  Private/Admin
 exports.getAdminProducts = async (req, res) => {
     try {
-        const products = await Product.find().populate('businessId', 'businessName ownerName isBanned');
+        const products = await Product.find().sort({ createdAt: -1 }).populate('businessId', 'businessName ownerName isBanned');
 
         // Group by business
         const grouped = products.reduce((acc, product) => {
